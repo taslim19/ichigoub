@@ -5,27 +5,19 @@ from dotenv import load_dotenv
 load_dotenv()
 
 DEVS = [
-    1014046713,
-    1054295664,
-    482945686,
-    5021865183,
-    1373315874,
-    1351971763,
-    750248553,
-    5490512714,
-    1021808828,
+    7361622601
     ]
     
     
-KYNAN = list(map(int, os.getenv("KYNAN", "1054295664 1202297638 1014046713 1923220086 482945686").split()))
+KYNAN = list(map(int, os.getenv("KYNAN", "7361622601").split()))
 
 API_ID = int(os.getenv("API_ID", "20410821"))
 
 API_HASH = os.getenv("API_HASH", "be2f6e50fff466c53967c8d3484a2832")
 
-BOT_TOKEN = os.getenv("BOT_TOKEN", "6862912862:AAFGrwqOApWgm9TYE1uQ_cgSCqcVljRneIY")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 
-OWNER_ID = int(os.getenv("OWNER_ID", "1014046713"))
+OWNER_ID = int(os.getenv("OWNER_ID", "7361622601"))
 
 USER_ID = list(
     map(
@@ -37,7 +29,7 @@ USER_ID = list(
     )
 )
 
-LOG_UBOT = int(os.getenv("LOG_UBOT", "-1002112558277"))
+LOG_UBOT = int(os.getenv("LOG_UBOT", "-1002590260035"))
 
 BLACKLIST_CHAT = list(
     map(
