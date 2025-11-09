@@ -6,54 +6,63 @@ import os
 import re
 from os import execvp
 from sys import executable
+from typing import Optional, Dict, List
 
 from aiohttp import ClientSession
-from pyrogram import *
+from pyrogram import Client
 from pyrogram.enums import *
-from pyrogram.handlers import *
+from pyrogram.handlers import CallbackQueryHandler, MessageHandler
 from pyrogram.types import *
 from pyromod import listen
 from pytgcalls import PyTgCalls
 
 from ubot.config import *
 
-# -----------------------------
-# aiohttp session (lazy, shared)
-# -----------------------------
-_aiosession: ClientSession | None = None
+# ---------------------------
+# aiohttp session management
+# ---------------------------
+
+_aiosession: Optional[ClientSession] = None
+# Back-compat global (some modules might `from ubot import aiosession`)
+aiosession: Optional[ClientSession] = None
+
 
 async def get_aiosession() -> ClientSession:
-    """
-    Return a shared aiohttp.ClientSession.
-    Safe to call from any coroutine after the event loop is running.
-    """
+    """Return a process-wide shared aiohttp session. Create it on first use."""
     global _aiosession
     if _aiosession is None or _aiosession.closed:
         _aiosession = ClientSession()
     return _aiosession
 
+
+async def ensure_aiosession() -> ClientSession:
+    """Create the session and also set the back-compat global `aiosession`."""
+    global aiosession
+    aiosession = await get_aiosession()
+    return aiosession
+
+
 async def close_aiosession() -> None:
-    """
-    Close the shared ClientSession on shutdown.
-    """
-    global _aiosession
+    """Close the shared session on shutdown."""
+    global _aiosession, aiosession
     if _aiosession and not _aiosession.closed:
         await _aiosession.close()
     _aiosession = None
+    aiosession = None
 
 
-# -----------------------------
-# Self-restart helper
-# -----------------------------
+# ---------------------------
+# Restart helper + logging
+# ---------------------------
+
 def gas():
+    """Gracefully restart the process with `python -m ubot`."""
     execvp(executable, [executable, "-m", "ubot"])
 
 
-# -----------------------------
-# Logging with auto-reconnect
-# -----------------------------
 class ConnectionHandler(logging.Handler):
-    def emit(self, record):
+    def emit(self, record: logging.LogRecord):
+        # Auto-restart on certain network-related errors
         for X in ["OSError"]:
             if X in record.getMessage():
                 gas()
@@ -78,18 +87,20 @@ def LOGGER(name: str) -> logging.Logger:
     return logging.getLogger(name)
 
 
-# -----------------------------
-# Ubot (Userbot) client
-# -----------------------------
+# ---------------------------
+# Ubot client
+# ---------------------------
+
 class Ubot(Client):
     __module__ = "pyrogram.client"
-    _ubot = []
-    _prefix = {}
-    _get_my_id = []
-    _translate = {}
-    _get_my_peer = {}
+    _ubot: List["Ubot"] = []
+    _prefix: Dict[int, List[str]] = {}
+    _get_my_id: List[int] = []
+    _translate: Dict[int, Dict[str, str]] = {}
+    _get_my_peer: Dict[int, str] = {}
 
     def __init__(self, api_id, api_hash, device_model="Ichigo-Userbot", **kwargs):
+        # Important: let pyrogram manage the loop; do not touch it here.
         super().__init__(**kwargs)
         self.api_id = api_id
         self.api_hash = api_hash
@@ -107,8 +118,13 @@ class Ubot(Client):
         self._prefix[self.me.id] = prefix
 
     async def start(self):
+        # Make sure our shared HTTP session exists under a running loop
+        await ensure_aiosession()
+
         await super().start()
         await self.call_py.start()
+
+        # get_pref is expected to be provided by your db/helpers (imported below)
         handler = await get_pref(self.me.id)
         if handler:
             self._prefix[self.me.id] = handler
@@ -117,8 +133,13 @@ class Ubot(Client):
         self._ubot.append(self)
         self._get_my_id.append(self.me.id)
         self._translate[self.me.id] = {"negara": "id"}
-        print(f"Starting Userbot ({self.me.id}|{self.me.first_name}{self.me.last_name})")
 
+        print(f"Starting Userbot ({self.me.id}|{self.me.first_name}{self.last_name or ''})")
+
+
+# ---------------------------
+# Prefix utilities
+# ---------------------------
 
 async def get_prefix(user_id):
     return ubot._prefix.get(user_id, ".")
@@ -127,7 +148,7 @@ async def get_prefix(user_id):
 def anjay(cmd):
     command_re = re.compile(r"([\"'])(.*?)(?<!\\)\1|(\S+)")
 
-    async def func(_, client, message):
+    async def func(_, client: Client, message):
         if message.text and message.from_user:
             text = message.text.strip()
             username = client.me.username or ""
@@ -166,10 +187,14 @@ def anjay(cmd):
 
         return False
 
+    from pyrogram import filters
     return filters.create(func)
 
 
-# Singletons (exported)
+# ---------------------------
+# Instances
+# ---------------------------
+
 ubot = Ubot(name="ubot", api_id=API_ID, api_hash=API_HASH, device_model="Himi-Ubot")
 
 
@@ -190,6 +215,8 @@ class Bot(Client):
         return decorator
 
     async def start(self):
+        # Ensure shared session exists for anything that might use it.
+        await ensure_aiosession()
         await super().start()
 
 
@@ -200,20 +227,25 @@ bot = Bot(
     bot_token=BOT_TOKEN,
 )
 
-# Late imports (keep after bot/ubot defined)
+# ---------------------------
+# Downstream imports (use shared session via get_aiosession/aiosession)
+# ---------------------------
+
 from ubot.core.database import *
 from ubot.core.function import *
 from ubot.core.helpers import *
 from ubot.core.plugins import *
 
 __all__ = [
-    "LOGGER",
     "Ubot",
     "Bot",
     "ubot",
     "bot",
+    "LOGGER",
     "anjay",
     "get_prefix",
     "get_aiosession",
+    "ensure_aiosession",
     "close_aiosession",
+    "aiosession",  # back-compat
 ]
